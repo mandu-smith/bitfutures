@@ -81,3 +81,40 @@
     (ok market-id)
   )
 )
+
+;; Places a prediction in an active market
+(define-public (make-prediction (market-id uint) (prediction (string-ascii 4)) (stake uint))
+  (let
+    (
+      (market (unwrap! (map-get? markets market-id) err-not-found))
+      (current-block block-height)
+    )
+    (asserts! (and (>= current-block (get start-block market)) 
+                   (< current-block (get end-block market))) 
+              err-market-closed)
+    (asserts! (or (is-eq prediction "up") (is-eq prediction "down")) 
+              err-invalid-prediction)
+    (asserts! (>= stake (var-get minimum-stake)) err-invalid-prediction)
+    (asserts! (<= stake (stx-get-balance tx-sender)) err-insufficient-balance)
+    
+    (try! (stx-transfer? stake tx-sender (as-contract tx-sender)))
+    
+    (map-set user-predictions {market-id: market-id, user: tx-sender}
+      {prediction: prediction, stake: stake, claimed: false}
+    )
+    
+    (map-set markets market-id
+      (merge market
+        {
+          total-up-stake: (if (is-eq prediction "up")
+                           (+ (get total-up-stake market) stake)
+                           (get total-up-stake market)),
+          total-down-stake: (if (is-eq prediction "down")
+                            (+ (get total-down-stake market) stake)
+                            (get total-down-stake market))
+        }
+      )
+    )
+    (ok true)
+  )
+)
