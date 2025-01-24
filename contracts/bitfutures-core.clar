@@ -28,14 +28,21 @@
 (define-constant err-not-found (err u101))
 (define-constant err-invalid-prediction (err u102))
 (define-constant err-market-closed (err u103))
+(define-constant err-market-not-started (err u107))
+(define-constant err-market-ended (err u108))
+(define-constant err-market-already-resolved (err u109))
 (define-constant err-already-claimed (err u104))
 (define-constant err-insufficient-balance (err u105))
 (define-constant err-invalid-parameter (err u106))
 
 ;; Data Variables
+;; Address of the oracle responsible for providing BTC price data
 (define-data-var oracle-address principal 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)
+;; Minimum stake required to participate in a market (1 STX)
 (define-data-var minimum-stake uint u1000000) ;; 1 STX minimum
+;; Platform fee percentage (2%)
 (define-data-var fee-percentage uint u2) ;; 2% platform fee
+;; Counter to keep track of the number of markets created
 (define-data-var market-counter uint u0)
 
 ;; Data Maps
@@ -87,11 +94,11 @@
   (let
     (
       (market (unwrap! (map-get? markets market-id) err-not-found))
-      (current-block block-height)
+      (current-block-height stacks-block-height)
     )
-    (asserts! (and (>= current-block (get start-block market)) 
-                   (< current-block (get end-block market))) 
-              err-market-closed)
+    (asserts! (and (>= current-block-height (get start-block market)) 
+                   (< current-block-height (get end-block market))) 
+              err-market-ended)
     (asserts! (or (is-eq prediction "up") (is-eq prediction "down")) 
               err-invalid-prediction)
     (asserts! (>= stake (var-get minimum-stake)) err-invalid-prediction)
@@ -124,8 +131,8 @@
   (let
     ((market (unwrap! (map-get? markets market-id) err-not-found)))
     (asserts! (is-eq tx-sender (var-get oracle-address)) err-owner-only)
-    (asserts! (>= block-height (get end-block market)) err-market-closed)
-    (asserts! (not (get resolved market)) err-market-closed)
+    (asserts! (>= stacks-block-height (get end-block market)) err-market-ended)
+    (asserts! (not (get resolved market)) err-market-already-resolved)
     (asserts! (> end-price u0) err-invalid-parameter)
     
     (map-set markets market-id
@@ -210,7 +217,7 @@
 (define-public (set-oracle-address (new-address principal))
   (begin
     (asserts! (is-eq tx-sender contract-owner) err-owner-only)
-    (asserts! (is-eq new-address new-address) err-invalid-parameter)
+    (asserts! (not (is-eq new-address (var-get oracle-address))) err-invalid-parameter)
     (ok (var-set oracle-address new-address))
   )
 )
